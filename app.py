@@ -29,13 +29,12 @@ st.divider()
 st.subheader("Pasos del Proceso")
 st.info("💡 Consejo: Complete la fila y presione el botón para agregar el siguiente paso. El sistema heredará el documento automáticamente.")
 
-# Definimos el nuevo orden de columnas
 columnas_ordenadas = [
     "Doc. que Ingresa", 
     "Sector Interviniente", 
     "Procesos Realizados", 
     "Salida", 
-    "Documento en tránsito", # Nuevo nombre y posición
+    "Documento en tránsito", 
     "Certificación", 
     "¿Cuál?"
 ]
@@ -80,7 +79,6 @@ if st.button("➕ Autocompletar y Agregar Siguiente Paso", type="secondary"):
     if not df_actual.empty:
         ultima_fila = df_actual.iloc[-1]
         salida_previa = str(ultima_fila.get("Salida", ""))
-        # Usamos el nuevo nombre de columna para la herencia
         doc_previo = str(ultima_fila.get("Documento en tránsito", "")).strip()
         
         if "Continúa" in salida_previa and doc_previo.lower() not in ["", "none", "nan", "<na>"]:
@@ -96,25 +94,52 @@ c1, c2 = st.columns([2, 1])
 
 with c1:
     st.subheader("Visualización del Workflow")
-    # Subtítulo con los valores de la Dirección, Trámite y Canal
     st.markdown(f"**Relevamiento:** {nombre_tramite if nombre_tramite else '---'} | **Dirección:** {direccion} | **Canal:** {canal}")
     
     grafo = graphviz.Digraph(graph_attr={'rankdir': 'LR'})
     
     for i, row in df_editado.iterrows():
+        doc_ingresa = str(row.get("Doc. que Ingresa", "")).strip()
         sector = str(row.get("Sector Interviniente", "")).strip()
         proceso = str(row.get("Procesos Realizados", "")).strip()
         entrega = str(row.get("Documento en tránsito", "")).strip()
+        salida = str(row.get("Salida", "")).strip()
+        certificacion = str(row.get("Certificación", "")).strip()
+        nombre_cert = str(row.get("¿Cuál?", "")).strip()
         
         if sector.lower() not in ['none', 'nan', '', '<na>']:
+            
+            # NUEVO: Nodo de Inicio (solo se dibuja en el primer paso válido)
+            if i == 0:
+                grafo.node('inicio', 'Inicio de Trámite', shape='ellipse', style='filled', fillcolor='#FFF9C4') # Amarillo claro
+                etiqueta_inicio = f"Ingresa:\n{doc_ingresa}" if doc_ingresa.lower() not in ['none', 'nan', '', '<na>'] else "Inicia"
+                grafo.edge('inicio', str(0), label=etiqueta_inicio)
+
+            # Dibuja el nodo del sector normal (Caja celeste)
             label_nodo = f"{sector}\n({proceso})" if proceso.lower() not in ['none', 'nan', '', '<na>'] else sector
             grafo.node(str(i), label_nodo, shape='box', style='filled', fillcolor='#E3F2FD')
             
-            if i < len(df_editado) - 1:
+            # Flecha hacia el siguiente sector (si continúa)
+            if i < len(df_editado) - 1 and "Continúa" in salida:
                 sig_sector = str(df_editado.iloc[i+1].get("Sector Interviniente", "")).strip()
                 if sig_sector.lower() not in ['none', 'nan', '', '<na>']:
                     etiqueta_flecha = f"Hacia {sig_sector}\n({entrega})" if entrega.lower() not in ['none', 'nan', '', '<na>'] else ""
                     grafo.edge(str(i), str(i+1), label=etiqueta_flecha)
+
+            # Nodo de Fin (Óvalo verde)
+            if salida == "Finaliza trámite":
+                id_fin = f"fin_{i}" 
+                
+                if certificacion == "Sí" and nombre_cert.lower() not in ['none', 'nan', '', '<na>']:
+                    texto_cert = f"Certificado: {nombre_cert}"
+                else:
+                    texto_cert = "Sin certificado"
+                
+                label_fin = f"Fin de Trámite\n({texto_cert})"
+                grafo.node(id_fin, label_fin, shape='ellipse', style='filled', fillcolor='#C8E6C9')
+                
+                etiqueta_flecha_fin = f"Entrega: {entrega}" if entrega.lower() not in ['none', 'nan', '', '<na>'] else ""
+                grafo.edge(str(i), id_fin, label=etiqueta_flecha_fin)
 
     sectores_cargados = [str(s) for s in df_editado["Sector Interviniente"] if str(s).lower() not in ['none', 'nan', '', '<na>']]
     
@@ -158,7 +183,6 @@ with c2:
                 "pasos": df_limpio.to_dict(orient="records")
             }
             
-            # Recordá cambiar esto por tu URL real de n8n
             url_n8n = "https://tu-n8n.com/webhook/relevamiento"
             
             try:
