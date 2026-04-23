@@ -27,22 +27,35 @@ st.divider()
 
 # --- SECCIÓN 2: DETALLE DEL TRÁMITE ---
 st.subheader("Pasos del Proceso")
-st.info("💡 Consejo: Agregue un sector y presione Enter o haga clic fuera. El sistema autocompletará el documento recibido si el paso anterior continúa.")
 
-# 1. Inicializamos la memoria base (SOLO la primera vez que se carga la página)
+# 1. Inicializamos la memoria con 1 fila vacía para que arranquen a trabajar
 if "pasos_data" not in st.session_state:
     st.session_state["pasos_data"] = pd.DataFrame(
-        columns=[
-            "Doc. que Ingresa", 
-            "Sector Interviniente", 
-            "Procesos Realizados", 
-            "Doc. que se Genera", 
-            "Salida", 
-            "Certificación", 
-            "¿Cuál?"
-        ]
+        [{"Doc. que Ingresa": None, "Sector Interviniente": None, "Procesos Realizados": None, "Doc. que se Genera": None, "Salida": None, "Certificación": None, "¿Cuál?": None}],
+        columns=["Doc. que Ingresa", "Sector Interviniente", "Procesos Realizados", "Doc. que se Genera", "Salida", "Certificación", "¿Cuál?"]
     )
 
+# --- LA SOLUCIÓN: BOTÓN EXPLÍCITO PARA AGREGAR PASO ---
+st.info("💡 Consejo: Use el botón de abajo para agregar un nuevo paso. El sistema vinculará la documentación automáticamente.")
+
+if st.button("➕ Agregar siguiente paso", type="secondary"):
+    df_actual = st.session_state["pasos_data"]
+    nuevo_paso = {col: None for col in df_actual.columns}
+    
+    # Autocompletado instantáneo al crear la fila
+    if len(df_actual) > 0:
+        ultima_fila = df_actual.iloc[-1]
+        salida_previa = str(ultima_fila.get("Salida", ""))
+        doc_previo = str(ultima_fila.get("Doc. que se Genera", "")).strip()
+        
+        if "Continúa" in salida_previa and doc_previo.lower() not in ["", "none", "nan", "<na>"]:
+            nuevo_paso["Doc. que Ingresa"] = doc_previo
+
+    # Pegamos la nueva fila al dataframe y recargamos
+    st.session_state["pasos_data"] = pd.concat([df_actual, pd.DataFrame([nuevo_paso])], ignore_index=True)
+    st.rerun()
+
+# Configuración visual de columnas
 config_columnas = {
     "Doc. que Ingresa": st.column_config.TextColumn("📄 Doc. que recibe"),
     "Sector Interviniente": st.column_config.TextColumn("🏢 Sector que actúa"),
@@ -61,18 +74,17 @@ config_columnas = {
     "¿Cuál?": st.column_config.TextColumn("Nombre Certificado"),
 }
 
-# 2. Renderizamos la tabla. 
-# Streamlit ahora se encarga de guardar lo que escribas sin que nosotros nos metamos.
+# 2. Renderizamos la tabla
 df_editado = st.data_editor(
     st.session_state["pasos_data"],
-    num_rows="dynamic",
+    num_rows="dynamic", # Lo dejamos dynamic por si quieren borrar una fila con el tacho de basura
     use_container_width=True,
     column_config=config_columnas,
     hide_index=True,
     key="editor_procesos" 
 )
 
-# 3. Lógica de Autocompletado (El "Efecto Dominó")
+# 3. Lógica Retroactiva (Por si modifican una fila de más arriba)
 hubo_cambio_automatico = False
 temp_df = df_editado.copy()
 
@@ -82,19 +94,16 @@ if len(temp_df) > 1:
         doc_previo = str(temp_df.loc[i-1, "Doc. que se Genera"]).strip()
         doc_actual = str(temp_df.loc[i, "Doc. que Ingresa"]).strip()
         
-        # Si el anterior sigue y tiene documento, pero el actual está vacío...
         if "Continúa" in salida_previa and doc_previo.lower() not in ["", "none", "nan", "<na>"]:
             if doc_actual.lower() in ["", "none", "nan", "<na>"]:
-                # ¡Inyectamos el documento!
                 temp_df.at[i, "Doc. que Ingresa"] = doc_previo
                 hubo_cambio_automatico = True
 
-# 4. LA SOLUCIÓN AL BUG:
-# Solo actualizamos la memoria si el sistema hizo un autocompletado.
-# Si el usuario está escribiendo manualmente, no tocamos nada para no borrarle el texto.
 if hubo_cambio_automatico:
     st.session_state["pasos_data"] = temp_df
     st.rerun()
+else:
+    st.session_state["pasos_data"] = temp_df
 
 st.divider()
 
@@ -162,7 +171,7 @@ with c2:
                 "pasos": df_limpio.to_dict(orient="records")
             }
             
-            url_n8n = "https://tu-n8n.com/webhook/relevamiento"
+            url_n8n = "https://tu-n8n.com/webhook/relevamiento" # Recordá poner la tuya
             
             try:
                 res = requests.post(url_n8n, json=payload)
