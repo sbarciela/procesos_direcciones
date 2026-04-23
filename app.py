@@ -89,12 +89,12 @@ if st.button("➕ Autocompletar y Agregar Siguiente Paso", type="secondary"):
 
 st.divider()
 
-# --- SECCIÓN 3: VISUALIZACIÓN DEL WORKFLOW (Ancho Total) ---
+# --- SECCIÓN 3: VISUALIZACIÓN DEL WORKFLOW ---
 st.subheader("Visualización del Workflow")
 st.markdown(f"**Relevamiento:** {nombre_tramite if nombre_tramite else '---'} | **Dirección:** {direccion} | **Canal:** {canal}")
 
-# CAMBIO CLAVE: rankdir='TB' significa Top-to-Bottom (De arriba hacia abajo)
-grafo = graphviz.Digraph(graph_attr={'rankdir': 'TB'}) 
+# Ajustamos márgenes internos para que el gráfico respire y mantenga proporciones
+grafo = graphviz.Digraph(graph_attr={'rankdir': 'TB', 'nodesep': '0.5', 'ranksep': '0.5'}) 
 
 for i, row in df_editado.iterrows():
     doc_ingresa = str(row.get("Doc. que Ingresa", "")).strip()
@@ -107,24 +107,20 @@ for i, row in df_editado.iterrows():
     
     if sector.lower() not in ['none', 'nan', '', '<na>']:
         
-        # Nodo de Inicio
         if i == 0:
             grafo.node('inicio', 'Inicio de Trámite', shape='ellipse', style='filled', fillcolor='#FFF9C4')
             etiqueta_inicio = f"Ingresa:\n{doc_ingresa}" if doc_ingresa.lower() not in ['none', 'nan', '', '<na>'] else "Inicia"
             grafo.edge('inicio', str(0), label=etiqueta_inicio)
 
-        # Nodo del sector normal
         label_nodo = f"{sector}\n({proceso})" if proceso.lower() not in ['none', 'nan', '', '<na>'] else sector
         grafo.node(str(i), label_nodo, shape='box', style='filled', fillcolor='#E3F2FD')
         
-        # Flecha hacia el siguiente sector
         if i < len(df_editado) - 1 and "Continúa" in salida:
             sig_sector = str(df_editado.iloc[i+1].get("Sector Interviniente", "")).strip()
             if sig_sector.lower() not in ['none', 'nan', '', '<na>']:
                 etiqueta_flecha = f"Hacia {sig_sector}\n({entrega})" if entrega.lower() not in ['none', 'nan', '', '<na>'] else ""
                 grafo.edge(str(i), str(i+1), label=etiqueta_flecha)
 
-        # Nodo de Fin
         if salida == "Finaliza trámite":
             id_fin = f"fin_{i}" 
             if certificacion == "Sí" and nombre_cert.lower() not in ['none', 'nan', '', '<na>']:
@@ -141,15 +137,16 @@ for i, row in df_editado.iterrows():
 sectores_cargados = [str(s) for s in df_editado["Sector Interviniente"] if str(s).lower() not in ['none', 'nan', '', '<na>']]
 
 if sectores_cargados:
-    # use_container_width centra el gráfico y usa el espacio disponible
-    st.graphviz_chart(grafo, use_container_width=True)
+    # EL CAMBIO MÁGICO: Lo ponemos en una columna central y SIN use_container_width
+    col_izq, col_centro, col_der = st.columns([1, 2, 1])
+    with col_centro:
+        st.graphviz_chart(grafo) 
 else:
     st.info("Cargue sectores en la tabla para ver el diagrama del proceso.")
 
 st.divider()
 
-# --- SECCIÓN 4: FINALIZAR RELEVAMIENTO (Reubicado al fondo) ---
-# Usamos columnas solo para centrar el botón y que no ocupe toda la pantalla de largo a largo
+# --- SECCIÓN 4: FINALIZAR RELEVAMIENTO ---
 _, col_btn, _ = st.columns([1, 2, 1])
 
 with col_btn:
