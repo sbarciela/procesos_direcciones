@@ -4,12 +4,13 @@ import requests
 import graphviz
 import numpy as np
 
-# Configuración inicial
+# Configuración inicial de la página
 st.set_page_config(page_title="Relevamiento de Procesos - Lomas de Zamora", layout="wide")
 
 st.title("🏛️ Relevamiento de Procesos Internos")
 st.write("Complete los datos generales y detalle el flujo documental de cada paso.")
 
+# --- SECCIÓN 1: DATOS GENERALES ---
 col1, col2 = st.columns(2)
 
 with col1:
@@ -24,9 +25,10 @@ with col2:
 
 st.divider()
 
+# --- SECCIÓN 2: DETALLE DEL TRÁMITE ---
 st.subheader("Pasos del Proceso")
-st.info("💡 Consejo: Agregue un sector en la fila nueva y presione Enter. El documento de ingreso se completará solo.")
 
+# Inicializamos el estado de los datos si no existe
 if "pasos_data" not in st.session_state:
     st.session_state["pasos_data"] = pd.DataFrame(
         columns=[
@@ -40,11 +42,7 @@ if "pasos_data" not in st.session_state:
         ]
     )
 
-if "editor_key" not in st.session_state:
-    st.session_state["editor_key"] = 0
-
-# --- EL ARREGLO ESTÁ ACÁ ---
-# Quitamos required=True para que Streamlit libere la fila inmediatamente
+# Configuración de columnas
 config_columnas = {
     "Doc. que Ingresa": st.column_config.TextColumn("📄 Doc. que recibe"),
     "Sector Interviniente": st.column_config.TextColumn("🏢 Sector que actúa"),
@@ -63,53 +61,54 @@ config_columnas = {
     "¿Cuál?": st.column_config.TextColumn("Nombre Certificado"),
 }
 
+# 1. Mostramos el editor con una KEY FIJA para evitar reseteos visuales
 df_editado = st.data_editor(
     st.session_state["pasos_data"],
     num_rows="dynamic",
     use_container_width=True,
     column_config=config_columnas,
     hide_index=True,
-    key=f"tabla_flujo_{st.session_state['editor_key']}"
+    key="tabla_estable" # Key fija para mantener el foco
 )
 
-# Reseteamos el índice para que Pandas no se confunda con las filas nuevas
-df_editado = df_editado.reset_index(drop=True)
-
-hubo_cambios_automaticos = False
-
-# Lógica de autocompletado a prueba de fallos
-if len(df_editado) > 1:
-    for i in range(1, len(df_editado)):
-        salida_anterior = str(df_editado.loc[i-1, "Salida"])
-        doc_generado_anterior = str(df_editado.loc[i-1, "Doc. que se Genera"]).strip()
-        
-        # Si el paso anterior marca "Continúa..." y tiene un documento generado
-        if "Continúa" in salida_anterior and doc_generado_anterior.lower() not in ["", "none", "nan", "<na>"]:
+# 2. Lógica de Autocompletado Silenciosa
+# En lugar de rerun instantáneo, procesamos los datos para la siguiente renderización
+def procesar_trazabilidad(df):
+    temp_df = df.copy()
+    cambio = False
+    if len(temp_df) > 1:
+        for i in range(1, len(temp_df)):
+            salida_previa = str(temp_df.loc[i-1, "Salida"])
+            doc_previo = str(temp_df.loc[i-1, "Doc. que se Genera"]).strip()
+            doc_actual = str(temp_df.loc[i, "Doc. que Ingresa"]).strip()
             
-            doc_ingresa_actual = str(df_editado.loc[i, "Doc. que Ingresa"]).strip()
-            
-            # Si la celda actual está vacía, inyectamos el documento
-            if doc_ingresa_actual.lower() in ["", "none", "nan", "<na>"]:
-                df_editado.loc[i, "Doc. que Ingresa"] = doc_generado_anterior
-                hubo_cambios_automaticos = True
+            # Si el anterior sigue y el actual está vacío, completamos
+            if "Continúa" in salida_previa and doc_previo.lower() not in ["", "none", "nan", "<na>"]:
+                if doc_actual.lower() in ["", "none", "nan", "<na>"]:
+                    temp_df.at[i, "Doc. que Ingresa"] = doc_previo
+                    cambio = True
+    return temp_df, cambio
 
-if hubo_cambios_automaticos:
-    st.session_state["pasos_data"] = df_editado
-    st.session_state["editor_key"] += 1
+# Guardamos el estado actual
+df_actualizado, hubo_cambio = procesar_trazabilidad(df_editado)
+
+if hubo_cambio:
+    st.session_state["pasos_data"] = df_actualizado
+    # Solo refrescamos si es estrictamente necesario para mostrar el dato nuevo
     st.rerun()
 else:
     st.session_state["pasos_data"] = df_editado
 
 st.divider()
 
-# --- VISUALIZACIÓN Y ENVÍO ---
+# --- SECCIÓN 3: VISUALIZACIÓN Y ENVÍO ---
 c1, c2 = st.columns([2, 1])
 
 with c1:
     st.subheader("Visualización del Workflow")
     grafo = graphviz.Digraph(graph_attr={'rankdir': 'LR'})
     
-    for i, row in df_editado.iterrows():
+    for i, row in df_actualizado.iterrows():
         sector = str(row.get("Sector Interviniente", "")).strip()
         proceso = str(row.get("Procesos Realizados", "")).strip()
         entrega = str(row.get("Doc. que se Genera", "")).strip()
@@ -118,13 +117,13 @@ with c1:
             label_nodo = f"{sector}\n({proceso})" if proceso and proceso.lower() not in ['none', 'nan', ''] else sector
             grafo.node(str(i), label_nodo, shape='box', style='filled', fillcolor='#E3F2FD')
             
-            if i < len(df_editado) - 1:
-                sig_sector = str(df_editado.loc[i+1, "Sector Interviniente"]).strip()
+            if i < len(df_actualizado) - 1:
+                sig_sector = str(df_actualizado.loc[i+1, "Sector Interviniente"]).strip()
                 if sig_sector and sig_sector.lower() not in ['none', 'nan', '']:
                     etiqueta_flecha = f"Envía: {entrega}" if entrega and entrega.lower() not in ['none', 'nan', ''] else ""
                     grafo.edge(str(i), str(i+1), label=etiqueta_flecha)
 
-    sectores_cargados = [s for s in df_editado["Sector Interviniente"].astype(str) if s.lower() not in ['none', 'nan', '', '<na>']]
+    sectores_cargados = [s for s in df_actualizado["Sector Interviniente"].astype(str) if s.lower() not in ['none', 'nan', '', '<na>']]
     
     if sectores_cargados:
         st.graphviz_chart(grafo)
@@ -136,27 +135,26 @@ with c2:
     
     if st.button("🚀 Enviar a n8n", use_container_width=True, type="primary"):
         errores = []
-        for idx, row in df_editado.iterrows():
+        for idx, row in df_actualizado.iterrows():
             salida_actual = str(row.get("Salida", ""))
             doc_genera = str(row.get("Doc. que se Genera", "")).strip()
             sector_act = str(row.get("Sector Interviniente", "")).strip()
             
-            # Validamos que no dejen filas por la mitad
             if sector_act and sector_act.lower() not in ['none', 'nan', '']:
                 if "Continúa" in salida_actual and doc_genera.lower() in ["", "none", "nan", "<na>"]:
-                    errores.append(f"Fila {idx+1}: Falta indicar el 'Doc. que entrega' antes de continuar.")
+                    errores.append(f"Fila {idx+1}: Falta el 'Doc. que entrega'.")
                 if salida_actual.lower() in ["", "none", "nan", "<na>"]:
-                    errores.append(f"Fila {idx+1}: Debe seleccionar un tipo de 'Salida'.")
+                    errores.append(f"Fila {idx+1}: Falta seleccionar 'Salida'.")
         
         if errores:
             for err in errores:
                 st.error(err)
-        elif len(sectores_cargados) == 0:
-            st.warning("No hay pasos válidos cargados en el proceso.")
+        elif not sectores_cargados:
+            st.warning("No hay pasos válidos.")
         elif not nombre_tramite:
-            st.warning("Por favor, asigne un nombre al trámite en la parte superior.")
+            st.warning("Falta el nombre del trámite.")
         else:
-            df_limpio = df_editado.replace({np.nan: None}).fillna("")
+            df_limpio = df_actualizado.replace({np.nan: None}).fillna("")
             payload = {
                 "meta": {
                     "municipio": "Lomas de Zamora",
@@ -167,15 +165,16 @@ with c2:
                 "pasos": df_limpio.to_dict(orient="records")
             }
             
-            url_n8n = "https://tu-n8n-instancia.com/webhook/relevamiento-procesos"
+            # URL de tu n8n
+            url_n8n = "https://tu-n8n.com/webhook/relevamiento"
             
             try:
                 res = requests.post(url_n8n, json=payload)
                 if res.status_code == 200:
-                    st.success("¡Relevamiento enviado con éxito!")
+                    st.success("¡Enviado con éxito!")
                     st.balloons()
                 else:
-                    st.error(f"Error al enviar a n8n (Código: {res.status_code})")
-            except Exception as e:
-                st.warning("Aviso: El Webhook de n8n no está configurado. JSON generado:")
+                    st.error(f"Error n8n: {res.status_code}")
+            except:
+                st.warning("Webhook no configurado. JSON:")
                 st.json(payload)
