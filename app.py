@@ -27,35 +27,15 @@ st.divider()
 
 # --- SECCIÓN 2: DETALLE DEL TRÁMITE ---
 st.subheader("Pasos del Proceso")
+st.info("💡 Consejo: Complete la fila actual y luego presione el botón gris de abajo para agregar el siguiente paso de forma automática.")
 
-# 1. Inicializamos la memoria con 1 fila vacía para que arranquen a trabajar
+# Inicializamos la memoria con 1 fila vacía
 if "pasos_data" not in st.session_state:
     st.session_state["pasos_data"] = pd.DataFrame(
         [{"Doc. que Ingresa": None, "Sector Interviniente": None, "Procesos Realizados": None, "Doc. que se Genera": None, "Salida": None, "Certificación": None, "¿Cuál?": None}],
         columns=["Doc. que Ingresa", "Sector Interviniente", "Procesos Realizados", "Doc. que se Genera", "Salida", "Certificación", "¿Cuál?"]
     )
 
-# --- LA SOLUCIÓN: BOTÓN EXPLÍCITO PARA AGREGAR PASO ---
-st.info("💡 Consejo: Use el botón de abajo para agregar un nuevo paso. El sistema vinculará la documentación automáticamente.")
-
-if st.button("➕ Agregar siguiente paso", type="secondary"):
-    df_actual = st.session_state["pasos_data"]
-    nuevo_paso = {col: None for col in df_actual.columns}
-    
-    # Autocompletado instantáneo al crear la fila
-    if len(df_actual) > 0:
-        ultima_fila = df_actual.iloc[-1]
-        salida_previa = str(ultima_fila.get("Salida", ""))
-        doc_previo = str(ultima_fila.get("Doc. que se Genera", "")).strip()
-        
-        if "Continúa" in salida_previa and doc_previo.lower() not in ["", "none", "nan", "<na>"]:
-            nuevo_paso["Doc. que Ingresa"] = doc_previo
-
-    # Pegamos la nueva fila al dataframe y recargamos
-    st.session_state["pasos_data"] = pd.concat([df_actual, pd.DataFrame([nuevo_paso])], ignore_index=True)
-    st.rerun()
-
-# Configuración visual de columnas
 config_columnas = {
     "Doc. que Ingresa": st.column_config.TextColumn("📄 Doc. que recibe"),
     "Sector Interviniente": st.column_config.TextColumn("🏢 Sector que actúa"),
@@ -74,36 +54,34 @@ config_columnas = {
     "¿Cuál?": st.column_config.TextColumn("Nombre Certificado"),
 }
 
-# 2. Renderizamos la tabla
+# 1. Renderizamos la tabla (Ahora es 100% libre de interrupciones)
 df_editado = st.data_editor(
     st.session_state["pasos_data"],
-    num_rows="dynamic", # Lo dejamos dynamic por si quieren borrar una fila con el tacho de basura
+    num_rows="dynamic",
     use_container_width=True,
     column_config=config_columnas,
     hide_index=True,
     key="editor_procesos" 
 )
 
-# 3. Lógica Retroactiva (Por si modifican una fila de más arriba)
-hubo_cambio_automatico = False
-temp_df = df_editado.copy()
-
-if len(temp_df) > 1:
-    for i in range(1, len(temp_df)):
-        salida_previa = str(temp_df.loc[i-1, "Salida"])
-        doc_previo = str(temp_df.loc[i-1, "Doc. que se Genera"]).strip()
-        doc_actual = str(temp_df.loc[i, "Doc. que Ingresa"]).strip()
+# 2. EL BOTÓN MÁGICO (Acá hacemos el autocompletado seguro)
+if st.button("➕ Autocompletar y Agregar Siguiente Paso", type="secondary"):
+    df_actual = df_editado.copy()
+    nuevo_paso = {col: None for col in df_actual.columns}
+    
+    # Revisamos la última fila para ver si hay que heredar el documento
+    if not df_actual.empty:
+        ultima_fila = df_actual.iloc[-1]
+        salida_previa = str(ultima_fila.get("Salida", ""))
+        doc_previo = str(ultima_fila.get("Doc. que se Genera", "")).strip()
         
+        # Si el trámite continúa, inyectamos el documento en la fila nueva
         if "Continúa" in salida_previa and doc_previo.lower() not in ["", "none", "nan", "<na>"]:
-            if doc_actual.lower() in ["", "none", "nan", "<na>"]:
-                temp_df.at[i, "Doc. que Ingresa"] = doc_previo
-                hubo_cambio_automatico = True
+            nuevo_paso["Doc. que Ingresa"] = doc_previo
 
-if hubo_cambio_automatico:
-    st.session_state["pasos_data"] = temp_df
+    # Guardamos y recargamos la pantalla una sola vez
+    st.session_state["pasos_data"] = pd.concat([df_actual, pd.DataFrame([nuevo_paso])], ignore_index=True)
     st.rerun()
-else:
-    st.session_state["pasos_data"] = temp_df
 
 st.divider()
 
@@ -119,17 +97,19 @@ with c1:
         proceso = str(row.get("Procesos Realizados", "")).strip()
         entrega = str(row.get("Doc. que se Genera", "")).strip()
         
-        if sector and sector.lower() not in ['none', 'nan', '']:
-            label_nodo = f"{sector}\n({proceso})" if proceso and proceso.lower() not in ['none', 'nan', ''] else sector
+        if sector.lower() not in ['none', 'nan', '', '<na>']:
+            label_nodo = f"{sector}\n({proceso})" if proceso.lower() not in ['none', 'nan', '', '<na>'] else sector
             grafo.node(str(i), label_nodo, shape='box', style='filled', fillcolor='#E3F2FD')
             
             if i < len(df_editado) - 1:
                 sig_sector = str(df_editado.loc[i+1, "Sector Interviniente"]).strip()
-                if sig_sector and sig_sector.lower() not in ['none', 'nan', '']:
-                    etiqueta_flecha = f"Envía: {entrega}" if entrega and entrega.lower() not in ['none', 'nan', ''] else ""
+                if sig_sector.lower() not in ['none', 'nan', '', '<na>']:
+                    etiqueta_flecha = f"Envía: {entrega}" if entrega.lower() not in ['none', 'nan', '', '<na>'] else ""
                     grafo.edge(str(i), str(i+1), label=etiqueta_flecha)
 
-    sectores_cargados = [s for s in df_editado["Sector Interviniente"].astype(str) if s.lower() not in ['none', 'nan', '', '<na>']]
+    # CORRECCIÓN DEL ERROR DE PANDAS (.astype)
+    # Convertimos cada valor a string puro de Python antes de evaluarlo
+    sectores_cargados = [str(s) for s in df_editado["Sector Interviniente"] if str(s).lower() not in ['none', 'nan', '', '<na>']]
     
     if sectores_cargados:
         st.graphviz_chart(grafo)
@@ -146,7 +126,7 @@ with c2:
             doc_genera = str(row.get("Doc. que se Genera", "")).strip()
             sector_act = str(row.get("Sector Interviniente", "")).strip()
             
-            if sector_act and sector_act.lower() not in ['none', 'nan', '']:
+            if sector_act.lower() not in ['none', 'nan', '', '<na>']:
                 if "Continúa" in salida_actual and doc_genera.lower() in ["", "none", "nan", "<na>"]:
                     errores.append(f"Fila {idx+1}: Falta el 'Doc. que entrega'.")
                 if salida_actual.lower() in ["", "none", "nan", "<na>"]:
@@ -171,7 +151,7 @@ with c2:
                 "pasos": df_limpio.to_dict(orient="records")
             }
             
-            url_n8n = "https://tu-n8n.com/webhook/relevamiento" # Recordá poner la tuya
+            url_n8n = "https://tu-n8n.com/webhook/relevamiento"
             
             try:
                 res = requests.post(url_n8n, json=payload)
