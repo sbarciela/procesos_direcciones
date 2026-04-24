@@ -2,3 +2,4 @@ streamlit
 pandas
 requests
 graphviz
+st-gsheets-connection
