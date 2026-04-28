@@ -4,11 +4,39 @@ import requests
 import graphviz
 import numpy as np
 import uuid
-import streamlit.components.v1 as components  # Agregamos esto para el F5 automático
+import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
 
 # Configuración de página
 st.set_page_config(page_title="Relevamiento de Procesos - Lomas de Zamora", layout="wide")
+
+# ==========================================
+# --- BARRERA DE SEGURIDAD (LOGIN) ---
+# ==========================================
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+if not st.session_state["autenticado"]:
+    st.title("🔒 Acceso Restringido")
+    st.info("Esta herramienta es de uso interno de la Municipalidad de Lomas de Zamora.")
+    
+    _, col_login, _ = st.columns([1, 2, 1])
+    with col_login:
+        clave_ingresada = st.text_input("Ingrese la clave de acceso:", type="password")
+        if st.button("Ingresar", use_container_width=True):
+            # Busca la contraseña en tus Secrets de Streamlit
+            if clave_ingresada == st.secrets["APP_PASSWORD"]:
+                st.session_state["autenticado"] = True
+                st.rerun()
+            else:
+                st.error("❌ Clave incorrecta.")
+    
+    # Detiene la ejecución acá. Nadie ve el resto sin la clave.
+    st.stop()
+
+# ==========================================
+# --- APLICACIÓN PRINCIPAL ---
+# ==========================================
 
 st.title("🏛️ Relevamiento de Procesos Internos")
 st.write("Cargue los datos del proceso. La información se guardará en la planilla institucional de la Secretaría.")
