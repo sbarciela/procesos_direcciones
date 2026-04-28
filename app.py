@@ -4,6 +4,7 @@ import requests
 import graphviz
 import numpy as np
 import uuid
+import streamlit.components.v1 as components  # Agregamos esto para el F5 automático
 from streamlit_gsheets import GSheetsConnection
 
 # Configuración de página
@@ -13,7 +14,6 @@ st.title("🏛️ Relevamiento de Procesos Internos")
 st.write("Cargue los datos del proceso. La información se guardará en la planilla institucional de la Secretaría.")
 
 # --- INICIALIZACIÓN DE ESTADOS ---
-# Estas variables controlan la memoria de la aplicación
 if "exito" not in st.session_state:
     st.session_state["exito"] = False
 if "balloons_shown" not in st.session_state:
@@ -30,12 +30,6 @@ if "pasos_data" not in st.session_state:
         columns=columnas_ordenadas
     )
 
-# Función para borrar la memoria y reiniciar
-def resetear_app():
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
-
 # --- CONEXIÓN A GOOGLE SHEETS ---
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -43,7 +37,6 @@ except Exception as e:
     st.error("Error de conexión con Google Sheets. Verificá los Secrets.")
 
 # --- SECCIÓN 1: DATOS GENERALES ---
-# NOTA: Les agregamos 'key' para poder borrarlos luego con el reset
 col1, col2 = st.columns(2)
 with col1:
     direccion = st.selectbox(
@@ -73,7 +66,6 @@ config_columnas = {
     "¿Cuál?": st.column_config.TextColumn("Nombre Certificado"),
 }
 
-# Si el trámite ya se guardó, deshabilitamos la edición de la tabla
 tabla_deshabilitada = st.session_state["exito"]
 
 df_editado = st.data_editor(
@@ -86,7 +78,6 @@ df_editado = st.data_editor(
     key="editor_procesos" 
 )
 
-# Botón para agregar paso (Se oculta si ya se guardó con éxito)
 if not st.session_state["exito"]:
     if st.button("➕ Autocompletar y Agregar Siguiente Paso", type="secondary"):
         df_actual = df_editado.copy()
@@ -157,37 +148,28 @@ _, col_btn, _ = st.columns([1, 2, 1])
 with col_btn:
     st.subheader("Finalizar Relevamiento")
     
-    # -------------------------------------------------------------
-    # PANTALLA DE ÉXITO: Muestra el ticket y el botón de reset
-    # -------------------------------------------------------------
     if st.session_state["exito"]:
         st.success(f"✅ ¡Datos guardados en la Secretaría!\n**Ticket de operación:** {st.session_state.get('ticket_id')}")
         
-        # Disparamos los globos solo una vez por guardado
         if not st.session_state["balloons_shown"]:
             st.balloons()
             st.session_state["balloons_shown"] = True
             
         if st.button("🔄 Cargar nuevo proceso/trámite", use_container_width=True):
-            resetear_app() # Borra la memoria y arranca de cero
+            # LA MAGIA DEL F5: Esto le dice al navegador web que recargue la página completa
+            components.html("<script>window.parent.location.reload();</script>", height=0)
             
-    # -------------------------------------------------------------
-    # PANTALLA DE CARGA: Muestra el botón de guardar
-    # -------------------------------------------------------------
     else:
         if st.button("🚀 Guardar en Google Sheets", use_container_width=True, type="primary"):
             if not nombre_tramite or not sectores_cargados:
                 st.error("Complete el nombre del trámite y al menos un paso.")
             else:
                 try:
-                    # 1. Generamos Ticket y Fecha
                     id_unico = str(uuid.uuid4().hex)[:8].upper()
                     fecha_hora = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # 2. Preparamos el DataFrame base
                     df_to_save = df_editado.copy()
                     
-                    # 3. Agregamos metadata
                     df_to_save["ID_Relevamiento"] = id_unico
                     df_to_save["Nro_Paso"] = range(1, len(df_to_save) + 1)
                     df_to_save["Dirección"] = direccion
@@ -195,7 +177,6 @@ with col_btn:
                     df_to_save["Trámite"] = nombre_tramite
                     df_to_save["Timestamp"] = fecha_hora
                     
-                    # 4. Reordenamos y filtramos para Sheets
                     columnas_finales = [
                         "Timestamp", "ID_Relevamiento", "Dirección", "Canal", "Trámite",
                         "Nro_Paso", "Doc. que Ingresa", "Sector Interviniente", 
@@ -203,22 +184,21 @@ with col_btn:
                         "Certificación", "¿Cuál?"
                     ]
                     
-                    # Filtramos filas vacías
                     df_to_save = df_to_save[df_to_save["Sector Interviniente"].astype(str).str.lower().isin(['none', 'nan', '', '<na>']) == False]
                     df_to_save = df_to_save[columnas_finales]
                     df_to_save = df_to_save.replace({np.nan: None}).fillna("")
                     
-                    # 5. Guardado efectivo
                     url_hoja = st.secrets["connections"]["gsheets"]["spreadsheet"]
-                    existing_data = conn.read(spreadsheet=url_hoja)
+                    
+                    # EL ARREGLO CRÍTICO: ttl=0 fuerza a leer el Excel real y no el de caché
+                    existing_data = conn.read(spreadsheet=url_hoja, ttl=0)
                     
                     updated_data = pd.concat([existing_data, df_to_save], ignore_index=True)
                     conn.update(spreadsheet=url_hoja, data=updated_data)
                     
-                    # 6. Cambiamos el estado para mostrar la pantalla de éxito
                     st.session_state["exito"] = True
                     st.session_state["ticket_id"] = id_unico
-                    st.rerun() # Refrescamos para que cambien los botones
+                    st.rerun() 
                     
                 except Exception as e:
                     st.error(f"Error al guardar: {e}")
