@@ -111,7 +111,7 @@ df_editado = st.data_editor(
         ),
         "Continuidad trámite": st.column_config.SelectboxColumn(
             "🔜 Continuidad", 
-            options=["Continúa en otro paso", "Continúa en otra secretaría y regresa", "Continúa en otra secretaría (Fin local)", "Finaliza trámite"],
+            options=["Continúa en otro paso", "Continúa en otra secretaría", "Continúa en otra dirección", "Finaliza trámite"],
             help="Indica hacia dónde va el trámite después de que este sector termina su parte."
         ),
         "Área de Derivación": st.column_config.TextColumn(
