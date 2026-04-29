@@ -225,4 +225,3 @@ with col_btn:
                     st.session_state["exito"] = True; st.session_state["ticket_id"] = tid; st.rerun() 
                 except Exception as e: st.error(f"Error: {e}")
 
-Con estos cambios, el **ID_Relevamiento** une todo, el **Origen** te dice de dónde vino y el **Resultado_Cierre** te dice cómo terminó. Tenés el ciclo de vida del trámite completo y blindado para el análisis de gestión. ¡Ya podés probar cómo se ve el nodo final con el resultado!
