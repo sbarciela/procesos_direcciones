@@ -4,7 +4,6 @@ import requests
 import graphviz
 import numpy as np
 import uuid
-import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
 
 # Configuración de página
@@ -24,26 +23,24 @@ if not st.session_state["autenticado"]:
     with col_login:
         clave_ingresada = st.text_input("Ingrese la clave de acceso:", type="password")
         if st.button("Ingresar", use_container_width=True):
-            # Busca la contraseña en tus Secrets de Streamlit
             if clave_ingresada == st.secrets["APP_PASSWORD"]:
                 st.session_state["autenticado"] = True
                 st.rerun()
             else:
                 st.error("❌ Clave incorrecta.")
-    
-    # Detiene la ejecución acá. Nadie ve el resto sin la clave.
     st.stop()
 
 # ==========================================
-# --- APLICACIÓN PRINCIPAL ---
+# --- INICIALIZACIÓN Y LÓGICA DE RESET ---
 # ==========================================
 
-st.title("🏛️ Relevamiento de Procesos Internos")
-st.write("Cargue los datos del proceso. La información se guardará en la planilla institucional de la Secretaría.")
+# El reset_id nos permite limpiar los widgets sin recargar la página completa
+if "reset_id" not in st.session_state:
+    st.session_state["reset_id"] = 0
 
-# --- INICIALIZACIÓN DE ESTADOS ---
 if "exito" not in st.session_state:
     st.session_state["exito"] = False
+
 if "balloons_shown" not in st.session_state:
     st.session_state["balloons_shown"] = False
 
@@ -52,29 +49,58 @@ columnas_ordenadas = [
     "Salida", "Documento en tránsito", "Certificación", "¿Cuál?"
 ]
 
+# Inicializamos los datos de la tabla si no existen
 if "pasos_data" not in st.session_state:
     st.session_state["pasos_data"] = pd.DataFrame(
         [{col: None for col in columnas_ordenadas}],
         columns=columnas_ordenadas
     )
 
+def ejecutar_reinicio_suave():
+    # Incrementamos el ID para que los widgets se regeneren vacíos
+    st.session_state["reset_id"] += 1
+    st.session_state["exito"] = False
+    st.session_state["balloons_shown"] = False
+    # Limpiamos la tabla
+    st.session_state["pasos_data"] = pd.DataFrame(
+        [{col: None for col in columnas_ordenadas}],
+        columns=columnas_ordenadas
+    )
+    st.rerun()
+
+# ==========================================
+# --- APLICACIÓN PRINCIPAL ---
+# ==========================================
+
+st.title("🏛️ Relevamiento de Procesos Internos")
+st.write("Cargue los datos del proceso. La información se guardará en la planilla institucional.")
+
 # --- CONEXIÓN A GOOGLE SHEETS ---
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error("Error de conexión con Google Sheets. Verificá los Secrets.")
+    st.error("Error de conexión con Google Sheets.")
 
 # --- SECCIÓN 1: DATOS GENERALES ---
+# Usamos el reset_id en la key para que se limpien al resetear
 col1, col2 = st.columns(2)
 with col1:
     direccion = st.selectbox(
         "Dirección:",
         ["Fiscalización", "Rentas", "A.R.L.O", "Capacidad contributiva", "Seguridad e higiene", "Ingresos públicos"],
-        key="input_direccion"
+        key=f"input_dir_{st.session_state.reset_id}"
     )
-    canal = st.selectbox("Canal:", ["Presencial", "Online", "Telefónico", "Otros"], key="input_canal")
+    canal = st.selectbox(
+        "Canal:", 
+        ["Presencial", "Online", "Telefónico", "Otros"], 
+        key=f"input_canal_{st.session_state.reset_id}"
+    )
 with col2:
-    nombre_tramite = st.text_input("Nombre del trámite:", placeholder="Ej: Alta de comercio", key="input_tramite")
+    nombre_tramite = st.text_input(
+        "Nombre del trámite:", 
+        placeholder="Ej: Alta de comercio", 
+        key=f"input_tramite_{st.session_state.reset_id}"
+    )
 
 st.divider()
 
@@ -94,16 +120,14 @@ config_columnas = {
     "¿Cuál?": st.column_config.TextColumn("Nombre Certificado"),
 }
 
-tabla_deshabilitada = st.session_state["exito"]
-
 df_editado = st.data_editor(
     st.session_state["pasos_data"],
     num_rows="dynamic",
     use_container_width=True,
     column_config=config_columnas,
     hide_index=True,
-    disabled=tabla_deshabilitada,
-    key="editor_procesos" 
+    disabled=st.session_state["exito"],
+    key=f"editor_{st.session_state.reset_id}" 
 )
 
 if not st.session_state["exito"]:
@@ -166,8 +190,6 @@ if sectores_cargados:
     c_izq, c_centro, c_der = st.columns([1, 2, 1])
     with c_centro:
         st.graphviz_chart(grafo)
-else:
-    st.info("Cargue sectores para generar el diagrama.")
 
 st.divider()
 
@@ -177,15 +199,13 @@ with col_btn:
     st.subheader("Finalizar Relevamiento")
     
     if st.session_state["exito"]:
-        st.success(f"✅ ¡Datos guardados en la Secretaría!\n**Ticket de operación:** {st.session_state.get('ticket_id')}")
-        
+        st.success(f"✅ ¡Datos guardados!\n**Ticket:** {st.session_state.get('ticket_id')}")
         if not st.session_state["balloons_shown"]:
             st.balloons()
             st.session_state["balloons_shown"] = True
             
         if st.button("🔄 Cargar nuevo proceso/trámite", use_container_width=True):
-            # LA MAGIA DEL F5: Esto le dice al navegador web que recargue la página completa
-            components.html("<script>window.parent.location.reload();</script>", height=0)
+            ejecutar_reinicio_suave()
             
     else:
         if st.button("🚀 Guardar en Google Sheets", use_container_width=True, type="primary"):
@@ -197,7 +217,6 @@ with col_btn:
                     fecha_hora = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
 
                     df_to_save = df_editado.copy()
-                    
                     df_to_save["ID_Relevamiento"] = id_unico
                     df_to_save["Nro_Paso"] = range(1, len(df_to_save) + 1)
                     df_to_save["Dirección"] = direccion
@@ -217,8 +236,6 @@ with col_btn:
                     df_to_save = df_to_save.replace({np.nan: None}).fillna("")
                     
                     url_hoja = st.secrets["connections"]["gsheets"]["spreadsheet"]
-                    
-                    # EL ARREGLO CRÍTICO: ttl=0 fuerza a leer el Excel real y no el de caché
                     existing_data = conn.read(spreadsheet=url_hoja, ttl=0)
                     
                     updated_data = pd.concat([existing_data, df_to_save], ignore_index=True)
